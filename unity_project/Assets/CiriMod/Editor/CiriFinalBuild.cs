@@ -11,13 +11,13 @@ public static class CiriFinalBuild {
  [Serializable] class NativeSkeleton { public string character; public NativeBone[] bones; }
  [Serializable] class PreviewMesh { public Vector3[] vertices; public int[] triangles; }
  static GameObject MakeMartaSkeleton() {
-  var data=JsonUtility.FromJson<NativeSkeleton>(File.ReadAllText(D+"Editor/MartaSkeleton.json"));
+  var data=JsonUtility.FromJson<NativeSkeleton>(File.ReadAllText(D+"Editor/IsabellaSkeleton.json"));
   var go=new GameObject("Skin");var map=new Dictionary<string,Transform>();
   foreach(var b in data.bones) {
    var t=new GameObject(b.name).transform;t.SetParent(string.IsNullOrEmpty(b.parent)?go.transform:map[b.parent],false);
    t.localPosition=b.position;t.localRotation=b.rotation;t.localScale=b.scale;map[b.name]=t;
   }
-  if(map.Count!=68)throw new Exception("Expected Marta's 68 joints");return go;
+  if(map.Count!=data.bones.Length||map.Count!=66)throw new Exception("Expected Isabella's 66 joints");return go;
  }
  const string D="Assets/CiriMod/";
  static string Root {get{return Path.GetFullPath(Path.Combine(Application.dataPath,"../.."));}}
@@ -152,11 +152,11 @@ public static class CiriFinalBuild {
   go.GetComponent<UnityEngine.UI.Image>().raycastTarget=false;go.GetComponent<RectTransform>().sizeDelta=new Vector2(2160,3840);PrefabUtility.SaveAsPrefabAsset(go,D+"Skin_pic.prefab");UnityEngine.Object.DestroyImmediate(go);
   ValidateAndRender();
   var outDir=Path.Combine(Root,"mod_ciri");Directory.CreateDirectory(outDir);
-  var builds=new[]{new AssetBundleBuild{assetBundleName="skin_marta_ciri",assetNames=new[]{D+"Skin.prefab"}},new AssetBundleBuild{assetBundleName="pic_marta_ciri",assetNames=new[]{D+"Skin_pic.prefab"}}};
+  var builds=new[]{new AssetBundleBuild{assetBundleName="skin_isabella_ciri",assetNames=new[]{D+"Skin.prefab"}},new AssetBundleBuild{assetBundleName="pic_isabella_ciri",assetNames=new[]{D+"Skin_pic.prefab"}}};
   if(BuildPipeline.BuildAssetBundles(outDir,builds,BuildAssetBundleOptions.ChunkBasedCompression,BuildTarget.StandaloneWindows64)==null)throw new Exception("Bundle build failed");
-  foreach(var name in new[]{"skin_marta_ciri","pic_marta_ciri"}) {var b=AssetBundle.LoadFromFile(Path.Combine(outDir,name));if(b==null)throw new Exception("Bundle load failed");if(b.LoadAllAssets<GameObject>().Length!=1)throw new Exception("Prefab count invalid");b.Unload(true);}
+  foreach(var name in new[]{"skin_isabella_ciri","pic_isabella_ciri"}) {var b=AssetBundle.LoadFromFile(Path.Combine(outDir,name));if(b==null)throw new Exception("Bundle load failed");if(b.LoadAllAssets<GameObject>().Length!=1)throw new Exception("Prefab count invalid");b.Unload(true);}
   File.WriteAllText(Path.Combine(Root,"unity_build_report.txt"),"Source: Ciri_source.glb (T-pose PBR model with its own rig, decimated to the game budget)\nCharacter: Marta only (native Mafra5/Marfa rig)\nUnity "+Application.unityVersion+"\nTriangles: "+triangles+"\nRigid head skinned to Head only: "+rigidHeadCount+" vertices\nReadable body and head, each with one wound-projection submesh.\nNative Marta skeleton: 68 joints, original local positions/rotations/scales.\nBoth Marta-specific bundles loaded successfully.\n");
-  Debug.Log("CIRI_MARTA_BUILD_OK");
+  Debug.Log("CIRI_ISABELLA_BUILD_OK");
  }
  static void VerifyDecalMeshes(GameObject skin) {
   var renderers=skin.GetComponentsInChildren<SkinnedMeshRenderer>();
@@ -191,8 +191,8 @@ public static class CiriFinalBuild {
   RelaxedPose(map);
   PortraitLights();
   camera.orthographic=false;camera.fieldOfView=27f;camera.nearClipPlane=.1f;
-  Capture("Ciri_Marta_selector",camera,new Vector3(-1.75f,1.15f,5.0f),true,1024,1536,new Vector3(0,.95f,0));
-  File.Copy(Path.Combine(Root,"Ciri_Marta_selector.png"),D+"Skin_pic.png",true);
+  Capture("Ciri_Isabella_selector",camera,new Vector3(-1.75f,1.15f,5.0f),true,1024,1536,new Vector3(0,.95f,0));
+  File.Copy(Path.Combine(Root,"Ciri_Isabella_selector.png"),D+"Skin_pic.png",true);
  }
  static void RelaxedPose(Dictionary<string,Transform> map) {
   foreach(var side in new[]{"Left","Right"}) {
@@ -257,7 +257,7 @@ public static class CiriFinalBuild {
   map[side+"HandThumb2"].localRotation*=Quaternion.AngleAxis(sign*30,Vector3.forward);
   map[side+"HandThumb3"].localRotation*=Quaternion.AngleAxis(sign*30,Vector3.forward);
  }
- [MenuItem("Ciri/Probar agarre de Marta")]
+ [MenuItem("Ciri/Probar agarre de Isabella")]
  public static void TestMartaGrip() {
   CiriBuild.MakeScene();var map=GameObject.Find("Skin").GetComponentsInChildren<Transform>().ToDictionary(t=>t.name,t=>t);
   PreviewSword(map);GuardPose(map);CloseFingers(map,"Right");CloseFingers(map,"Left");SceneView.RepaintAll();
@@ -282,20 +282,20 @@ public static class CiriFinalBuild {
   Capture("Ciri_Unity_guard",cam,new Vector3(-2,1,4));
   foreach(var kv in saved)map[kv.Key].localRotation=kv.Value;
   var sword=PreviewSword(map);GuardPose(map);CloseFingers(map,"Right");CloseFingers(map,"Left");
-  Capture("Ciri_Marta_grip",cam,new Vector3(-1.5f,1.1f,4));
+  Capture("Ciri_Isabella_grip",cam,new Vector3(-1.5f,1.1f,4));
   cam.orthographic=false;cam.fieldOfView=65f;cam.nearClipPlane=.03f;
   var eye=map["Head"].position+new Vector3(0,.09f,.07f);
-  Capture("Ciri_Marta_fpp",cam,eye,false,1280,720,eye+new Vector3(0,-.34f,1));
+  Capture("Ciri_Isabella_fpp",cam,eye,false,1280,720,eye+new Vector3(0,-.34f,1));
   var displacedEye=eye+new Vector3(.26f,.04f,.09f);
-  Capture("Ciri_Marta_fpp_offset",cam,displacedEye,false,1280,720,displacedEye+new Vector3(0,-.34f,1));
-  Capture("Ciri_Marta_fpp_down",cam,eye,false,1280,720,eye+new Vector3(0,-1,.44f));
-  Capture("Ciri_Marta_fpp_wide",cam,new Vector3(-1.4f,1.4f,3.2f),false,1080,1080);
+  Capture("Ciri_Isabella_fpp_offset",cam,displacedEye,false,1280,720,displacedEye+new Vector3(0,-.34f,1));
+  Capture("Ciri_Isabella_fpp_down",cam,eye,false,1280,720,eye+new Vector3(0,-1,.44f));
+  Capture("Ciri_Isabella_fpp_wide",cam,new Vector3(-1.4f,1.4f,3.2f),false,1080,1080);
   cam.orthographic=true;
-  var prop=map["RightHandProp"];cam.orthographicSize=.19f;Capture("Ciri_Marta_hand_closeup",cam,prop.position+new Vector3(.3f,.2f,.65f),false,1000,1000,prop.position);cam.orthographicSize=1.18f;
+  var prop=map["RightHandProp"];cam.orthographicSize=.19f;Capture("Ciri_Isabella_hand_closeup",cam,prop.position+new Vector3(.3f,.2f,.65f),false,1000,1000,prop.position);cam.orthographicSize=1.18f;
   var rightForearm=map["RightForeArm"];
   var rightAxis=map["RightHand"].position-rightForearm.position;
   rightForearm.rotation=Quaternion.AngleAxis(65,rightAxis)*rightForearm.rotation;
-  Capture("Ciri_Marta_pronation",cam,new Vector3(-1.5f,1.1f,4));
+  Capture("Ciri_Isabella_pronation",cam,new Vector3(-1.5f,1.1f,4));
   UnityEngine.Object.DestroyImmediate(sword);foreach(var kv in saved)map[kv.Key].localRotation=kv.Value;
   map["Neck"].localRotation*=Quaternion.Euler(-18,22,-9);
   map["Head"].localRotation*=Quaternion.Euler(20,32,15);
@@ -309,7 +309,7 @@ public static class CiriFinalBuild {
    Aim(map,side+"ForeArm",side+"Hand",new Vector3(sign*.05f,.78f,-.5f));
   }
   cam.orthographic=false;
-  Capture("Ciri_Marta_underarms",cam,new Vector3(.08f,1.04f,.94f),false,1000,950,new Vector3(0,1.49f,0));
+  Capture("Ciri_Isabella_underarms",cam,new Vector3(.08f,1.04f,.94f),false,1000,950,new Vector3(0,1.49f,0));
   foreach(var kv in saved)map[kv.Key].localRotation=kv.Value;
   foreach(var side in new[]{"Right","Left"}) {
    float sign=side=="Right"?1:-1;
@@ -317,13 +317,13 @@ public static class CiriFinalBuild {
    Aim(map,side+"ForeArm",side+"Hand",new Vector3(sign*.38f,.04f,.94f));
    CloseFingers(map,side);
    var target=Vector3.Lerp(map[side+"Arm"].position,map[side+"Hand"].position,.34f);
-   Capture("Ciri_Marta_extension_"+side,cam,new Vector3(sign*1.24f,1.48f,-1.55f),false,1000,900,target);
-   Capture("Ciri_Marta_inner_"+side,cam,target+new Vector3(-sign*.58f,-.45f,1.0f),false,1000,900,target);
+   Capture("Ciri_Isabella_extension_"+side,cam,new Vector3(sign*1.24f,1.48f,-1.55f),false,1000,900,target);
+   Capture("Ciri_Isabella_inner_"+side,cam,target+new Vector3(-sign*.58f,-.45f,1.0f),false,1000,900,target);
    foreach(var kv in saved)map[kv.Key].localRotation=kv.Value;
    Aim(map,side+"Arm",side+"ForeArm",new Vector3(sign*.14f,.60f,.78f));
    Aim(map,side+"ForeArm",side+"Hand",new Vector3(sign*.09f,.72f,.60f));
    target=Vector3.Lerp(map[side+"Arm"].position,map[side+"ForeArm"].position,.44f);
-   Capture("Ciri_Marta_raised_"+side,cam,target+new Vector3(sign*.88f,-.10f,-1.18f),false,1000,900,target);
+   Capture("Ciri_Isabella_raised_"+side,cam,target+new Vector3(sign*.88f,-.10f,-1.18f),false,1000,900,target);
    foreach(var kv in saved)map[kv.Key].localRotation=kv.Value;
   }
   UnityEditor.SceneManagement.EditorSceneManager.SaveScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene(),D+"CiriPreview.unity");

@@ -114,7 +114,8 @@ if not mesh.vertex_groups:
 # (correct) source weights.
 ARM_TUBE_R, ARM_TUBE_WIDE = .13, .22
 # A cloth sleeve: the shoulder cap goes with the arm right past the joint.
-SHOULDER_IN, SHOULDER_OUT, ELBOW_HALF, WRIST_IN = .07, .0, .04, .03
+# A cloth sleeve: the whole shoulder cap goes with the arm, blended over 10 cm.
+SHOULDER_IN, SHOULDER_OUT, ELBOW_HALF, WRIST_IN = .10, .0, .04, .03
 def smooth01(x): x = min(1., max(0., x)); return x * x * (3 - 2 * x)
 arm_fixed = 0
 for side, sg in (('Left', 1), ('Right', -1)):
@@ -155,6 +156,7 @@ print('ARMS_REBUILT', arm_fixed, flush=True)
 # pauldrons, so raising an arm does not dent the breastplate.
 BELT_Z, BELT_BAND = 1.20, .05  # Ciri's metal belt over the corset; the corset below it moves with the hips
 CORE_X, SIDE_X = .12, .17
+ARMPIT_Z = J['LeftArm']['head'].z - .12
 neck_z = J['Neck']['head'].z
 for i, v in enumerate(mesh.data.vertices):
     co = v.co
@@ -167,7 +169,9 @@ for i, v in enumerate(mesh.data.vertices):
     for n in ('Hips', 'Spine'):
         if n in w: w[n] *= (1 - t)
     w['Spine1'] = w.get('Spine1', 0) + lower * t
-    if t >= 1:
+    # Ciri's shoulders are a linen shirt, not armour: the arm weight is only handed to the
+    # chest on the corset, below the armpits, so the shoulders still follow the arms.
+    if t >= 1 and co.z < ARMPIT_Z:
         f = min(1., max(0., (SIDE_X - abs(co.x)) / (SIDE_X - CORE_X)))
         if f > 0:
             for n in [n for n in w if n.endswith(('Shoulder', 'Arm')) and not n.endswith('ForeArm')]:
@@ -343,7 +347,7 @@ bpy.context.view_layer.update()
 cam.data.ortho_scale = .55; render('head_closeup', (0, -4, 1.62), (0, 0, 1.62)); render('head_side', (4, 0, 1.62), (0, 0, 1.62))
 
 # --- Save and export ------------------------------------------------------------
-bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, 'Ciri_Marta.blend'))
+bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, 'Ciri_Isabella.blend'))
 bpy.ops.object.select_all(action='DESELECT'); arm.select_set(True)
 for o in parts: o.select_set(True)
 bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, 'Skin.fbx'), use_selection=True, object_types={'ARMATURE', 'MESH'},

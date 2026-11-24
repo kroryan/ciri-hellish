@@ -19,16 +19,21 @@ public static class CiriFppBuilder {
   fsm.DataVersion = 2;
 
   var loader = new FsmGameObject("SkinLoader") { UseVariable = true };
-  var animator = new FsmGameObject("MartaAnimator") { UseVariable = true };
-  // The native toTPP event can reactivate these four stock objects during
-  // a wide shot, including the original face. Scope lookups to this fighter.
-  var stockNames = new[] { "headMESH", "CC_Base_Teeth", "CC_Base_Tongue", "polySurface3",
-   // Marta's wound overlays are copies of her own body shape. With a custom
+  var animator = new FsmGameObject("IsabellaAnimator") { UseVariable = true };
+  // Isabella's stock body (prefab Wloszka3). Group27005 holds her upper body,
+  // face and hair; pSphere2 is an eye. Only names that are unique inside her
+  // prefab are listed (pSphere1, the teeth and the tongue also exist on her
+  // swords or twice, so a lookup by name could hit the wrong object).
+  // Scope lookups to this fighter.
+  var stockNames = new[] { "Group18692", "Group27005", "Group62914", "Mesh", "Mesh1",
+   "polySurface4", "polySurface6", "polySurface34", "polySurface35", "pSphere2",
+   // Isabella's wound overlays are copies of her own body shape. With a custom
    // skin they would float over it as a second, transparent body when hit.
-   "DecalArmpitSlice", "DecalBloody", "DecalBloodyLeft", "DecalBloodyRight", "DecalChoppedHand",
-   "DecalChoppedHead", "DecalHead", "DecalHeadSmall", "DecalLeftArm", "DecalLeftForeArm",
-   "DecalMarfaGrab_A", "DecalMarfaGrab_B", "DecalRightArm", "DecalRightForeArm",
-   "DecalSpine1", "DecalSpine1Small", "DecalStomach" };
+   "DecalCutOffHand", "DecalCutHead", "DecalStomach", "DecalArmpitSlice", "DecalMarfaGrab_A",
+   "DecalMarfaGrab_B", "DecalBloody", "DecalBloodyLeft", "DecalBloodyRight", "DecalBloodyLow",
+   "DecalSpine1", "DecalHips", "DecalLeftArm", "DecalLeftForeArm", "DecalRightForeArm",
+   "DecalRightArm", "DecalRightUpLeg", "DecalRightLeg", "DecalLeftLeg", "DecalHead",
+   "DecalHeadSmall", "DecalSpine1Small" };
   var stockParts = stockNames.Select(name => new FsmGameObject(name) { UseVariable = true }).ToArray();
   fsm.Variables.GameObjectVariables = new[] { loader, animator }.Concat(stockParts).ToArray();
   var finished = FsmEvent.GetFsmEvent("FINISHED");
