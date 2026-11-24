@@ -18,7 +18,7 @@ The zip contains only the four bundles (`skin_isabella_ciri`, `pic_isabella_ciri
 - `model/Ciri_Isabella.blend`: the fitted result on Isabella's skeleton, editable in Blender 5.3.
 - `model/references/`: the four reference views.
 - `model/Ciri_source.glb` is not in the repository because of its size (83 MB). Place it there to rebuild from scratch.
-- `model/selector_portrait.png`: the selector picture (upscaled 3x with Lanczos).
+- `model/selector_portrait.png`: the selector picture (from `selecion`, a photo of a Ciri statue, 3072x4080).
 - `blender_work/`:
   - `step1_prepare.py` welds, decimates and cleans the source, transfers its rig weights and exports the textures;
   - `step3_rig_marta.py` scales the model, fits Isabella's limbs and hands, rebuilds the arm weights, makes the torso rigid, locks the side locks to the head, carries the mesh into Isabella's bind pose and splits off the rigid head, with QA renders;
