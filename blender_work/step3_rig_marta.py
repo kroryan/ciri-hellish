@@ -1,0 +1,355 @@
+# Step 3: bind the textured mesh to Marta's native 68-joint skeleton.
+#
+# Marta's bones are moved/turned onto the joints of the source rig, the mesh is
+# skinned with the source weights (renamed to Marta's bones), and then the
+# skeleton is returned to Marta's native rest pose, carrying the mesh into
+# Marta's bind space. Head and hat are split into a rigid Head-only part.
+import bpy, os, sys, json, math, collections
+import numpy as np
+from mathutils import Matrix, Vector
+
+args = sys.argv[sys.argv.index('--') + 1:]
+BUILD, SKELETON = args[0], args[1]
+OUT = os.path.join(BUILD, 'marta'); os.makedirs(OUT, exist_ok=True)
+bpy.ops.wm.open_mainfile(filepath=os.path.join(BUILD, 'prepared.blend'))
+mesh = bpy.data.objects['CiriBody']
+J = {k: {'head': Vector(v['head']), 'tail': Vector(v['tail'])} for k, v in
+     json.load(open(os.path.join(BUILD, 'source_joints.json'))).items()}
+
+# --- Marta skeleton (same conversion as the Ciri build) -----------------
+native = json.load(open(SKELETON))
+C = Matrix(((-1, 0, 0, 0), (0, 0, -1, 0), (0, 1, 0, 0), (0, 0, 0, 1)))
+ad = bpy.data.armatures.new('MartaSkeleton'); arm = bpy.data.objects.new('Armature', ad)
+bpy.context.scene.collection.objects.link(arm)
+bpy.context.view_layer.objects.active = arm; arm.select_set(True)
+bpy.ops.object.mode_set(mode='EDIT')
+for n in native['bones']:
+    b = ad.edit_bones.new(n['name']); b.length = .05
+    W = Matrix(n['world']); R = C @ W.to_3x3().to_4x4() @ C.inverted(); R.translation = C.to_3x3() @ W.translation
+    b.matrix = R
+    if n['parent']: b.parent = ad.edit_bones[n['parent']]
+bpy.ops.object.mode_set(mode='OBJECT')
+original = {b.name: b.matrix_local.copy() for b in ad.bones}
+origlen = {b.name: b.length for b in ad.bones}
+
+# A model whose shoulders sit more than 4 cm away from Marta's is scaled as a
+# whole to her shoulder height: proportions stay intact, nothing is stretched
+# or squashed. Smaller differences are absorbed by the upper-body lift below.
+src_shoulder = (J['LeftArm']['head'].z + J['RightArm']['head'].z) / 2
+marta_shoulder = (original['LeftArm'].translation.z + original['RightArm'].translation.z) / 2
+SCALE = marta_shoulder / src_shoulder if abs(src_shoulder - marta_shoulder) > .04 else 1.
+if SCALE != 1.:
+    mesh.data.transform(Matrix.Scale(SCALE, 4))
+    for k in J: J[k] = {'head': J[k]['head'] * SCALE, 'tail': J[k]['tail'] * SCALE}
+print('MODEL_SCALE', round(SCALE, 4), flush=True)
+
+# --- Fit Marta's joints to the source rig ------------------------------------
+bpy.ops.object.mode_set(mode='EDIT')
+eb = ad.edit_bones
+def H(n): return eb[n].head.copy()
+def apply(n, M):
+    for q in [eb[n]] + list(eb[n].children_recursive): q.matrix = M @ q.matrix
+def move(n, target): apply(n, Matrix.Translation(Vector(target) - H(n)))
+def turn(n, child, target):
+    h = H(n); r = (H(child) - h).normalized().rotation_difference((Vector(target) - h).normalized())
+    apply(n, Matrix.Translation(h) @ r.to_matrix().to_4x4() @ Matrix.Translation(-h))
+def frame(d, l):
+    d = d.normalized(); l = (l - d * l.dot(d)).normalized(); return Matrix((d, l, d.cross(l))).transposed()
+def align_frame(n, d1, l1, d2, l2):
+    h = H(n); R = frame(d2, l2) @ frame(d1, l1).transposed()
+    apply(n, Matrix.Translation(h) @ R.to_4x4() @ Matrix.Translation(-h))
+
+# The trunk keeps Marta's joint layout, but the whole upper block (chest,
+# shoulders, neck, head) is lifted to the model's shoulder height. Marta's head
+# sits ~5 cm higher above her shoulders than these models; fitting only the
+# shoulders pulled them down and stretched the neck. The height difference is
+# shared between the Hips-Spine and Spine-Spine1 spans of the torso instead.
+lift = ((J['LeftArm']['head'].z + J['RightArm']['head'].z) / 2 -
+        (H('LeftArm').z + H('RightArm').z) / 2)
+move('Spine', H('Spine') + Vector((0, 0, lift / 2)))
+move('Spine1', H('Spine1') + Vector((0, 0, lift / 2)))
+print('UPPER_BODY_LIFT', round(lift, 4), flush=True)
+for s in ('Left', 'Right'):
+    move(s + 'Shoulder', J[s + 'Shoulder']['head']); turn(s + 'Shoulder', s + 'Arm', J[s + 'Arm']['head'])
+    move(s + 'Arm', J[s + 'Arm']['head']); turn(s + 'Arm', s + 'ForeArm', J[s + 'ForeArm']['head'])
+    move(s + 'ForeArm', J[s + 'ForeArm']['head']); turn(s + 'ForeArm', s + 'Hand', J[s + 'Hand']['head'])
+    move(s + 'Hand', J[s + 'Hand']['head'])
+    hn = s + 'Hand'
+    align_frame(hn, H(hn + 'Middle1') - H(hn), H(hn + 'Index1') - H(hn + 'Pinky1'),
+                J[hn + 'Middle1']['head'] - J[hn]['head'], J[hn + 'Index1']['head'] - J[hn + 'Pinky1']['head'])
+    for f in ('Thumb', 'Index', 'Middle', 'Ring', 'Pinky'):
+        for k in (1, 2, 3):
+            n = f'{hn}{f}{k}'; tgt = J[f'{hn}{f}{k+1}']['head'] if k < 3 else J[n]['tail']
+            move(n, J[n]['head']); turn(n, f'{hn}{f}{k+1}', tgt)
+    move(s + 'UpLeg', J[s + 'UpLeg']['head']); turn(s + 'UpLeg', s + 'Leg', J[s + 'Leg']['head'])
+    move(s + 'Leg', J[s + 'Leg']['head']); turn(s + 'Leg', s + 'Foot', J[s + 'Foot']['head'])
+    move(s + 'Foot', J[s + 'Foot']['head']); turn(s + 'Foot', s + 'ToeBase', J[s + 'ToeBase']['head'])
+    move(s + 'ToeBase', J[s + 'ToeBase']['head']); turn(s + 'ToeBase', s + 'ToeBase_END', J[s + 'ToeBase']['tail'])
+bpy.ops.object.mode_set(mode='OBJECT')
+
+# --- Weights: source names -> Marta names ------------------------------------
+RENAME = {'Spine1': 'Spine', 'Spine2': 'Spine1'}
+bone_names = {b.name for b in ad.bones}
+names = [g.name for g in mesh.vertex_groups]
+per_vertex = []
+for v in mesh.data.vertices:
+    w = {}
+    for g in v.groups:
+        n = RENAME.get(names[g.group], names[g.group])
+        if n not in bone_names: raise RuntimeError('Unmapped bone ' + n)
+        w[n] = w.get(n, 0) + g.weight
+    per_vertex.append(w)
+V0 = np.array([tuple(v.co) for v in mesh.data.vertices])
+if not mesh.vertex_groups:
+    # No source weights: bone heat on the fitted skeleton (heat_weights.py).
+    exec(compile(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'heat_weights.py')).read(),
+                 'heat_weights.py', 'exec'))
+
+# Arms rebuilt along Marta's bones. The source rig gives the top of the upper
+# arm (pauldron and puffed red sleeve) to the clavicle and chest, so with the
+# arms down those parts stayed in T-pose and stretched into flaps. Inside the
+# arm tube everything past the shoulder joint now belongs to the arm: a short
+# blend at the shoulder, the upper arm on Arm, a clean Arm->ForeArm blend at
+# the elbow and the forearm on ForeArm. The wrist and hand keep their own
+# (correct) source weights.
+ARM_TUBE_R, ARM_TUBE_WIDE = .13, .22
+# A cloth sleeve: the shoulder cap goes with the arm right past the joint.
+SHOULDER_IN, SHOULDER_OUT, ELBOW_HALF, WRIST_IN = .07, .0, .04, .03
+def smooth01(x): x = min(1., max(0., x)); return x * x * (3 - 2 * x)
+arm_fixed = 0
+for side, sg in (('Left', 1), ('Right', -1)):
+    js, je, jw = J[side + 'Arm']['head'], J[side + 'ForeArm']['head'], J[side + 'Hand']['head']
+    xs, xe, xw = sg * js.x, sg * je.x, sg * jw.x
+    for i, v in enumerate(mesh.data.vertices):
+        u = sg * v.co.x
+        if u < xs - SHOULDER_IN or u > xw - WRIST_IN: continue
+        a, b = (js, je) if u < xe else (je, jw)
+        f = min(1., max(0., (u - sg * a.x) / max(1e-6, sg * (b.x - a.x))))
+        axis = a.lerp(b, f)
+        # Near the shoulder the tube stays narrow (the cuirass side is right below);
+        # past the joint there is no torso, and the puffed sleeves are wide.
+        tube = ARM_TUBE_R if u < xs + .02 else ARM_TUBE_WIDE
+        if math.hypot(v.co.y - axis.y, v.co.z - axis.z) > tube: continue
+        # At the shoulder only the pauldron on top of the joint follows the arm; the
+        # breastplate and backplate sides below it stay on the chest (no armpit dent).
+        if u < xs + .02 and v.co.z < axis.z - .02: continue
+        if u < xe:
+            t_arm = smooth01((u - (xs - SHOULDER_IN)) / (SHOULDER_IN + SHOULDER_OUT))
+            t_fore = smooth01((u - (xe - ELBOW_HALF)) / (2 * ELBOW_HALF))
+        else:
+            t_arm, t_fore = 1., smooth01((u - (xe - ELBOW_HALF)) / (2 * ELBOW_HALF))
+        rest = {n: x for n, x in per_vertex[i].items() if not n.startswith(side + 'Arm') and not n.startswith(side + 'ForeArm')}
+        tot = sum(rest.values())
+        rest = {n: x / tot for n, x in rest.items()} if tot > 1e-6 else {side + 'Shoulder': 1.}
+        w = {n: x * (1 - t_arm) for n, x in rest.items()}
+        w[side + 'Arm'] = t_arm * (1 - t_fore); w[side + 'ForeArm'] = t_arm * t_fore
+        per_vertex[i] = {n: x for n, x in w.items() if x > 1e-4}; arm_fixed += 1
+print('ARMS_REBUILT', arm_fixed, flush=True)
+
+# Rigid torso (leather corset and the shirt above it): one piece on the chest
+# (Spine1). The source rig spreads them over Hips/Spine/Spine1 like cloth, so
+# a twist of the spine bent the plates and their gold stripes. Above the belt
+# all lower-trunk weight goes to the chest; the plates only articulate at the
+# belt (a 6 cm band). On the front and back of the chest the clavicle and
+# upper-arm weights are also handed to the chest, fading out towards the
+# pauldrons, so raising an arm does not dent the breastplate.
+BELT_Z, BELT_BAND = 1.20, .05  # Ciri's metal belt over the corset; the corset below it moves with the hips
+CORE_X, SIDE_X = .12, .17
+neck_z = J['Neck']['head'].z
+for i, v in enumerate(mesh.data.vertices):
+    co = v.co
+    if co.z < BELT_Z - BELT_BAND or co.z > neck_z: continue
+    w = per_vertex[i]
+    t = min(1., (co.z - (BELT_Z - BELT_BAND)) / (2 * BELT_BAND))
+    # Hips and Spine keep their own proportions; only the share t moves to the chest,
+    # so the weights stay continuous with the corset and hips below the band.
+    lower = w.get('Hips', 0) + w.get('Spine', 0)
+    for n in ('Hips', 'Spine'):
+        if n in w: w[n] *= (1 - t)
+    w['Spine1'] = w.get('Spine1', 0) + lower * t
+    if t >= 1:
+        f = min(1., max(0., (SIDE_X - abs(co.x)) / (SIDE_X - CORE_X)))
+        if f > 0:
+            for n in [n for n in w if n.endswith(('Shoulder', 'Arm')) and not n.endswith('ForeArm')]:
+                x = w[n] * f; w[n] -= x; w['Spine1'] += x
+    tot = sum(w.values())
+    if tot > 0: per_vertex[i] = {n: x / tot for n, x in w.items() if x / tot > 1e-4}
+print('RIGID_CUIRASS belt_z', BELT_Z, flush=True)
+
+# Side locks. The source rig gives the lower half of the locks beside the face
+# no head weight, so they stayed on the shoulders and stretched on every head
+# move. The locks are grown down from the hair that is already on the head,
+# through white-grey (hair coloured) vertices only, so they never leak into the
+# white shirt below; they are then locked to the head, fading out at the tips.
+import numpy as np, collections
+_img = bpy.data.images.load(os.path.join(BUILD, 'Ciri_BaseColor.png'))
+_W, _H = _img.size; _px = np.array(_img.pixels[:], dtype=np.float32).reshape(_H, _W, 4)
+_uv = mesh.data.uv_layers.active.data; _vuv = {}
+for p in mesh.data.polygons:
+    for li in p.loop_indices: _vuv.setdefault(mesh.data.loops[li].vertex_index, tuple(_uv[li].uv))
+def _hair(i):
+    u, v = _vuv.get(i, (0., 0.)); c = _px[min(_H - 1, int(v % 1 * _H)), min(_W - 1, int(u % 1 * _W)), :3]
+    return c.mean() > .5 and c.max() - c.min() < .1
+LOCK_LOW_Z, LOCK_FADE = 1.40, .04
+_hx = J['Head']['head']
+_nb = collections.defaultdict(list)
+for e in mesh.data.edges:
+    a, b = e.vertices; _nb[a].append(b); _nb[b].append(a)
+_vs = mesh.data.vertices
+seeds = [i for i, w in enumerate(per_vertex) if w.get('Head', 0) >= .8 and _hair(i)]
+lock = set(seeds); todo = list(seeds)
+while todo:
+    i = todo.pop()
+    for j in _nb[i]:
+        c = _vs[j].co
+        if j in lock or c.z < LOCK_LOW_Z or math.hypot(c.x - _hx.x, c.y - _hx.y) > .13 or not _hair(j): continue
+        lock.add(j); todo.append(j)
+grown = 0
+for i in lock:
+    if per_vertex[i].get('Head', 0) >= .99: continue
+    t = min(1., (_vs[i].co.z - LOCK_LOW_Z) / LOCK_FADE)
+    w = {n: x * (1 - t) for n, x in per_vertex[i].items() if n != 'Head'}
+    w['Head'] = per_vertex[i].get('Head', 0) * (1 - t) + t
+    per_vertex[i] = {n: x for n, x in w.items() if x > 1e-4}; grown += 1
+print('HAIR_LOCKS_TO_HEAD', grown, flush=True)
+# Rigid head: faces fully owned by the head (face, hair, hat).
+head_faces = set()
+for p in mesh.data.polygons:
+    # Long hair: a looser threshold keeps more of the locks in the rigid head.
+    if p.center.z > 1.42 and all(per_vertex[i].get('Head', 0) >= .35 for i in p.vertices):
+        head_faces.add(p.index)
+head_verts = {i for f in head_faces for i in mesh.data.polygons[f].vertices}
+body_verts = {i for p in mesh.data.polygons if p.index not in head_faces for i in p.vertices}
+seam = head_verts & body_verts
+for i in head_verts: per_vertex[i] = {'Head': 1.}
+
+# Hanging hair below the rigid head: diffuse the weights from the head seam
+# over ~12 cm of the locks, so a head turn is shared along the hair instead
+# of folding it at the seam line.
+import heapq
+nbr = [[] for _ in mesh.data.vertices]
+for e in mesh.data.edges:
+    a, b = e.vertices; d = (mesh.data.vertices[a].co - mesh.data.vertices[b].co).length
+    nbr[a].append((b, d)); nbr[b].append((a, d))
+dist = {i: 0. for i in seam}; heap = [(0., i) for i in seam]
+while heap:
+    d, i = heapq.heappop(heap)
+    if d > dist.get(i, 1e9) or d > .12: continue
+    for j, dd in nbr[i]:
+        if j in head_verts: continue
+        nd = d + dd
+        if nd < dist.get(j, 1e9) and nd <= .12:
+            dist[j] = nd; heapq.heappush(heap, (nd, j))
+band = [i for i in dist if i not in head_verts]
+for _ in range(12):
+    new = {}
+    for i in band:
+        acc = {n: x * .4 for n, x in per_vertex[i].items()}; share = .6 / max(1, len(nbr[i]))
+        for j, _ in nbr[i]:
+            for n, x in per_vertex[j].items(): acc[n] = acc.get(n, 0.) + x * share
+        tot = sum(acc.values()); new[i] = {n: x / tot for n, x in acc.items() if x / tot > 1e-4}
+    for i, w in new.items(): per_vertex[i] = w
+print('HAIR_TRANSITION head_faces', len(head_faces), 'band_vertices', len(band), flush=True)
+
+while mesh.vertex_groups: mesh.vertex_groups.remove(mesh.vertex_groups[0])
+groups = {}
+for i, w in enumerate(per_vertex):
+    top = sorted(((n, x) for n, x in w.items() if x > 1e-4), key=lambda t: -t[1])[:4]
+    tot = sum(x for _, x in top)
+    if tot <= 0: top, tot = [('Hips', 1.)], 1.
+    for n, x in top:
+        g = groups.get(n) or mesh.vertex_groups.new(name=n); groups[n] = g
+        g.add([i], x / tot, 'REPLACE')
+
+# --- Carry the mesh into Marta's native bind pose ----------------------------
+mesh.parent = arm
+mod = mesh.modifiers.new('Armature', 'ARMATURE'); mod.object = arm
+for pb in arm.pose.bones:
+    pb.matrix = original[pb.name]; bpy.context.view_layer.update()
+dg = bpy.context.evaluated_depsgraph_get(); eo = mesh.evaluated_get(dg); em = eo.to_mesh()
+coords = [v.co.copy() for v in em.vertices]; eo.to_mesh_clear(); mesh.modifiers.remove(mod)
+for v, c in zip(mesh.data.vertices, coords): v.co = c
+bpy.context.view_layer.objects.active = arm; bpy.ops.object.mode_set(mode='EDIT')
+for b in ad.edit_bones: b.matrix = original[b.name]; b.length = origlen[b.name]
+bpy.ops.object.mode_set(mode='OBJECT')
+for pb in arm.pose.bones: pb.matrix_basis = Matrix.Identity(4)
+mod = mesh.modifiers.new('Armature', 'ARMATURE'); mod.object = arm
+
+# --- Materials, split body/head ----------------------------------------------
+img = bpy.data.images.load(os.path.join(BUILD, 'Ciri_BaseColor.png'))
+def material(name):
+    mt = bpy.data.materials.new(name); mt.use_nodes = True
+    tx = mt.node_tree.nodes.new('ShaderNodeTexImage'); tx.image = img
+    bs = mt.node_tree.nodes['Principled BSDF']; bs.inputs['Roughness'].default_value = .85
+    mt.node_tree.links.new(tx.outputs['Color'], bs.inputs['Base Color']); return mt
+mesh.data.materials.clear()
+mesh.data.materials.append(material('CiriMaterial')); mesh.data.materials.append(material('HeadMaterial'))
+for p in mesh.data.polygons: p.material_index = 1 if p.index in head_faces else 0
+bpy.ops.object.select_all(action='DESELECT'); mesh.select_set(True); bpy.context.view_layer.objects.active = mesh
+bpy.ops.object.mode_set(mode='EDIT'); bpy.ops.mesh.select_all(action='SELECT')
+bpy.ops.mesh.separate(type='MATERIAL'); bpy.ops.object.mode_set(mode='OBJECT')
+parts = [o for o in bpy.data.objects if o.type == 'MESH']
+for o in parts:
+    used = {o.data.materials[p.material_index].name for p in o.data.polygons}
+    o.name = 'CiriHead' if any(n.startswith('HeadMaterial') for n in used) else 'CiriBody'
+    o.data.name = o.name
+    # Separating by material can leave stray vertices without faces in a part.
+    import bmesh
+    bm = bmesh.new(); bm.from_mesh(o.data)
+    stray = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=stray, context='VERTS'); bm.to_mesh(o.data); bm.free()
+    print('STRAY_VERTICES_REMOVED', o.name, len(stray), flush=True)
+
+# --- QA renders ---------------------------------------------------------------
+sc = bpy.context.scene; sc.render.engine = 'BLENDER_WORKBENCH'
+sc.display.shading.light = 'STUDIO'; sc.display.shading.color_type = 'TEXTURE'
+sc.render.resolution_x = 1000; sc.render.resolution_y = 1200
+cam = bpy.data.objects.new('cam', bpy.data.cameras.new('cam')); sc.collection.objects.link(cam); sc.camera = cam
+cam.data.type = 'ORTHO'; cam.data.ortho_scale = 2.3
+def render(n, pos, tgt=(0, 0, 1)):
+    cam.location = pos; cam.rotation_euler = (Vector(tgt) - Vector(pos)).to_track_quat('-Z', 'Y').to_euler()
+    sc.render.filepath = os.path.join(OUT, n + '.png'); bpy.ops.render.render(write_still=True)
+render('rest_front', (0, -4, 1)); render('rest_back', (0, 4, 1)); render('rest_side', (4, 0, 1))
+def point(n, child, d):
+    bpy.context.view_layer.update(); pb = arm.pose.bones[n]; m = pb.matrix; h = m.translation
+    v = arm.pose.bones[child].matrix.translation - h
+    r = v.normalized().rotation_difference(Vector(d).normalized()).to_matrix().to_4x4()
+    pb.matrix = Matrix.Translation(h) @ r @ Matrix.Translation(-h) @ m; bpy.context.view_layer.update()
+for s, sg in (('Left', 1), ('Right', -1)):
+    point(s + 'Arm', s + 'ForeArm', (sg * .7, 0, .7)); point(s + 'ForeArm', s + 'Hand', (sg * .5, -.3, .7))
+render('test_arms_up', (0, -4, 1))
+for pb in arm.pose.bones: pb.matrix_basis = Matrix.Identity(4)
+bpy.context.view_layer.update()
+point('RightArm', 'RightForeArm', (-.25, -.7, -.25)); point('RightForeArm', 'RightHand', (.15, -.8, .15))
+point('LeftArm', 'LeftForeArm', (.4, .2, -.4))
+render('test_guard', (2, -4, 1.1))
+for pb in arm.pose.bones: pb.matrix_basis = Matrix.Identity(4)
+bpy.context.view_layer.update()
+# Fighting twist: spine bent and turned, as in Marta's attacks; checks the back.
+for n, e in (('Spine', (12, 18, 6)), ('Spine1', (10, 24, 8))):
+    pb = arm.pose.bones[n]; pb.rotation_mode = 'XYZ'; pb.rotation_euler = [math.radians(a) for a in e]
+point('RightArm', 'RightForeArm', (-.25, -.7, -.25)); point('RightForeArm', 'RightHand', (.15, -.8, .15))
+render('test_twist_back', (-1.5, 4, 1.2)); render('test_twist_side', (4, .8, 1.2))
+for pb in arm.pose.bones: pb.matrix_basis = Matrix.Identity(4)
+bpy.context.view_layer.update()
+# Head turn: checks that the long hair follows smoothly without folding.
+for n, e in (('Neck', (8, 20, 4)), ('Head', (12, 30, 8))):
+    pb = arm.pose.bones[n]; pb.rotation_mode = 'XYZ'; pb.rotation_euler = [math.radians(a) for a in e]
+cam.data.ortho_scale = .8
+render('test_head_turn_back', (1.2, 3.5, 1.5), (0, 0, 1.45)); render('test_head_turn_side', (3.6, -.6, 1.5), (0, 0, 1.45))
+cam.data.ortho_scale = 2.3
+for pb in arm.pose.bones: pb.matrix_basis = Matrix.Identity(4)
+bpy.context.view_layer.update()
+cam.data.ortho_scale = .55; render('head_closeup', (0, -4, 1.62), (0, 0, 1.62)); render('head_side', (4, 0, 1.62), (0, 0, 1.62))
+
+# --- Save and export ------------------------------------------------------------
+bpy.ops.wm.save_as_mainfile(filepath=os.path.join(OUT, 'Ciri_Marta.blend'))
+bpy.ops.object.select_all(action='DESELECT'); arm.select_set(True)
+for o in parts: o.select_set(True)
+bpy.ops.export_scene.fbx(filepath=os.path.join(OUT, 'Skin.fbx'), use_selection=True, object_types={'ARMATURE', 'MESH'},
+                         add_leaf_bones=False, bake_anim=False, path_mode='COPY', embed_textures=False,
+                         use_mesh_modifiers=False, apply_scale_options='FBX_SCALE_NONE')
+report = {'parts': {o.name: {'verts': len(o.data.vertices), 'tris': sum(len(p.vertices) - 2 for p in o.data.polygons)} for o in parts},
+          'seam_vertices': len(seam), 'bones': len(ad.bones)}
+json.dump(report, open(os.path.join(OUT, 'rig_report.json'), 'w'), indent=1)
+print('MARTA_RIG_OK', report, flush=True)
