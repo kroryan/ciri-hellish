@@ -286,6 +286,20 @@ for a, c in SEGMENTS:
     Sm = Matrix.Identity(3) + (r - 1) * Matrix(((dn.x * dn.x, dn.x * dn.y, dn.x * dn.z), (dn.y * dn.x, dn.y * dn.y, dn.y * dn.z), (dn.z * dn.x, dn.z * dn.y, dn.z * dn.z)))
     stretch[a] = Matrix.Translation(nh) @ Sm.to_4x4() @ Matrix.Translation(-nh)
     print('SEGMENT_STRETCH', a, round(r, 3), flush=True)
+# The game snaps every skin bone onto the fighter's bone (SetParent with local
+# position and rotation reset), so Isabella's joint positions rule. Ciri's hips
+# sit ~10 cm higher than Isabella's (short torso, long legs): with only the
+# limbs fitted, Isabella-length arms hung to mid-thigh and the hip area had to
+# stretch between pelvis and thighs. The lower trunk (Hips and Spine weights) is
+# therefore stretched vertically below the chest joint (Spine1), so the mesh hip
+# joint lands on Isabella's; the thighs then start right there.
+z0 = original['Spine1'].translation.z
+mesh_hip = (fit_head['LeftUpLeg'].z + fit_head['RightUpLeg'].z) / 2
+native_hip = (original['LeftUpLeg'].translation.z + original['RightUpLeg'].translation.z) / 2
+r_trunk = (z0 - native_hip) / max(1e-6, z0 - mesh_hip)
+St = Matrix.Translation((0, 0, z0)) @ Matrix.Diagonal((1., 1., r_trunk, 1.)) @ Matrix.Translation((0, 0, -z0))
+for n in ('Hips', 'Spine'): stretch[n] = St
+print('TRUNK_STRETCH', round(r_trunk, 3), 'mesh_hip', round(mesh_hip, 3), 'native_hip', round(native_hip, 3), flush=True)
 Mb = {}
 for b in ad.bones:
     M = original[b.name] @ b.matrix_local.inverted()
